@@ -17,7 +17,9 @@
     choose_node/0,
     get_metrics/0,
     get_key/2,
+    get_key/3,
     get_key/1,
+
     search_key/1
 ]).
 
@@ -109,6 +111,30 @@ get_key(Key, Args) ->
         end
     end),
     Result.
+
+get_key(Mod, Key, Args) ->
+    %{ok, {M,F,A}} = application:get_env(forseti, call),
+    {ok, List} = application:get_env(forseti, call),
+    [{M,F,A}]=[{M,F,A} || {M,F,A} <- List, Mod =:= M],
+    
+    Params = [Key|A] ++ Args,
+    {atomic, Result} = mnesia:transaction(fun() -> 
+        case find_key(Key) of
+        {Node,PID} ->
+            case forseti_lib:is_alive(Node, PID) of
+            true ->
+                {Node,PID};
+            false ->
+                ?debugFmt("process DIE! ~p in ~p, regenerating...", [PID,Node]),
+                generate_process(Key,M,F,Params)
+            end;
+        undefined ->
+            mnesia:write_lock_table(forseti_processes), 
+            generate_process(Key,M,F,Params)
+        end
+    end),
+    Result.
+
 
 -spec search_key(Key::term()) -> {node(), pid()} | undefined.
 
